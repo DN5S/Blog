@@ -1,9 +1,23 @@
 # About
-This is the demo site for [Fuwari](https://github.com/saicaca/fuwari).
+~~~lain
+88            88              
+88            ""              
+88                            
+88 ,adPPYYba, 88 8b,dPPYba,   
+88 ""     `Y8 88 88P'   `"8a  
+88 ,adPPPPP88 88 88       88  
+88 88,    ,88 88 88       88  
+88 `"8bbdP"Y8 88 88       88
+~~~
 
-::github{repo="saicaca/fuwari"}
+- Everything is changing rapidly, and so are my interests.
+- Tried many things, and even still, do not know what is mein.
+- At least; Python, C#, Java Developer
 
-> ### Sources of images used in this site
-> - [Unsplash](https://unsplash.com/)
-> - [星と少女](https://www.pixiv.net/artworks/108916539) by [Stella](https://www.pixiv.net/users/93273965)
-> - [Rabbit - v1.4 Showcase](https://civitai.com/posts/586908) by [Rabbit_YourMajesty](https://civitai.com/user/Rabbit_YourMajesty)
+------------
+
+## Projects
+::github{repo="DN5S/TataruLink"}
+::github{repo="DN5S/ModuleKit"}
+
+...and some Unity / Unreal Games that I lost already.
