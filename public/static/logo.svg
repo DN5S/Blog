@@ -1,16 +1,7 @@
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-<g clip-path="url(#clip0_271_118)">
-<rect width="512" height="74" fill="#CCCCCC"/>
-<rect y="146" width="512" height="74" fill="#CCCCCC"/>
-<rect y="292" width="512" height="74" fill="#CCCCCC"/>
-<rect y="438" width="512" height="74" fill="#CCCCCC"/>
-<rect y="74" width="72" height="72" fill="#CCCCCC"/>
-<rect y="366" width="72" height="72" fill="#CCCCCC"/>
-<rect x="440" y="220" width="72" height="72" fill="#CCCCCC"/>
-</g>
-<defs>
-<clipPath id="clip0_271_118">
-<rect width="512" height="512" fill="white"/>
-</clipPath>
-</defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 9" class="pixelicon-pig">
+    <path fill="#FFD6D7" d="M6,3v2H5V2H2v1H1v1h1v3h1v1h1V7h2v1h1V7h1v1h1V4H8V3H6z M3,4h1v1H3V4z"/>
+    <rect fill="#FFD6D7" x="8" y="2" width="1" height="1"/>
+    <polygon fill="#FFAEB0" points="0,4 0,6 2,6 2,4"/>
+    <polygon fill="#FFAEB0" points="5,3 5,5 6,5 6,3"/>
+    <rect fill="#343341" x="3" y="4" width="1" height="1"/>
 </svg>
