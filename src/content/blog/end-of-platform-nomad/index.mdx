@@ -1,0 +1,196 @@
+---
+title: 'End of Platform Nomad'
+description: 'A six-year odyssey through WordPress, Jekyll, Hugo, Hexo, and countless others—learning the hard way what actually matters in a developer blog.'
+date: 2025-10-01
+authors: ['dn5s']
+tags: ['blogging', 'astro', 'developer-experience', 'static-site-generators']
+draft: false
+---
+
+import Callout from '@/components/Callout.astro'
+
+## Introduction
+
+This is my first post on this blog. Which means absolutely nothing, because I've written dozens of "first posts" over the past six years. Each time I was convinced I'd found the perfect platform. Each time I was wrong.
+
+WordPress, Jekyll, some forgettable static site generator, Hexo, Hugo, Notion, Obsidian—I've tried them all. Each one promised to be "the last platform I'd ever need." Each one failed to account for the fact that I, the user, am fundamentally the problem.
+
+Today I'm using Astro with the astro-erudite theme. Will this be my final destination? Let's not kid ourselves. But at least this time I understand *why* I keep failing, which is marginally better than blind optimism.
+
+Let me walk you through six years of poor decisions.
+
+## 2019:
+
+2019 Sophomore. I was learning new things, and everyone insisted I needed a blog to "build my personal brand" or whatever the current buzzword was. So I did what every naive developer does: I picked **WordPress**; self-hosting blog, and it was at the top of the Google list.
+
+The platform that wants to be everything to everyone and ends up being bloated garbage for most use cases. Every page load felt like wading through molasses. I was running a MySQL database to serve *static text*. The admin dashboard was slower than my will to live during finals week.
+
+But sure, it had thousands of plugins. Most of which I didn't need. And themes. Most of which looked like they were designed in 2010. And constant security updates because apparently running a personal blog requires the security posture of a Fortune 500 company.
+
+Around the same time, I built a simple PHP forum for a web programming course. It was basic, ugly, and perfect. Complete control, zero bloats. Then AWS sent me a bill, who doesn't know what `free` means. No backups, of course.
+
+In fact, even if I had it, I probably should have discarded it because of personal information. My friends were actually putting **their** passwords into the DB
+
+Lesson learned: cloud costs are real.
+
+## 2021-2022:
+
+After military service, I returned to this blogging nonsense in 2022. This time I was going to be *smart* about it. This time I'd use proper developer tools.
+
+### Jekyll (GitHub Pages):
+
+**Jekyll** and **GitHub Pages**—the classic combo for developers. Free hosting, version control, markdown files. What could go wrong?
+
+Everything, apparently. Math equation rendering was a nightmare. Ruby felt unnecessarily arcane for someone who just wanted to write blog posts. The Gemfile, bundle install, version conflicts—all of this just to serve static HTML.
+
+<Callout variant="note">
+  I like Ruby now.
+</Callout>
+
+When I wanted to customize something simple, I found myself drowning in Liquid templating and Jekyll's plugin architecture. This wasn't solving my problem; it was creating new ones.
+
+### The Forgotten Static Site Generator
+
+There was another one before Hexo. I genuinely can't remember its name, which tells you everything you need to know about how memorable the experience was.
+
+What I do remember: dealing with npm felt like a part-time job. Come back after two weeks? Something's broken. `node_modules` had consumed half my disk space. The build was slower than Jekyll despite being "modern" and "fast."
+
+I gave up quickly. Next.
+
+### Hexo:
+
+**Hexo** lasted six months—my longest relationship with any platform. It had everything: a large ecosystem, plenty of themes, good documentation. I should have been happy.
+
+Instead, I was drowning in dependencies. Every theme pulled in dozens of npm packages. "Simple blog theme" apparently requires half of npm to function. The themes looked polished but were over-engineered to hell.
+
+And none of them looked how I wanted. I'd spend hours thinking "if only this color was different" or "why does the sidebar do that?" But I wasn't interested in learning frontend development just to adjust padding on my personal blog.
+
+So I left. Again.
+
+### Hugo:
+
+Fast forward to late 2024. I was evaluating options again because apparently I enjoy this cycle of disappointment. **Hugo** was on my list. It's fast, popular, and the [Blowfish theme](https://blowfish.page/) looks genuinely good.
+
+I almost chose it. In some parallel universe, I did choose it, and that version of me is probably just as dissatisfied?
+
+## Notion and Obsidian
+
+Somewhere between Hexo and Hugo, I tried **Notion** and **Obsidian**. Because why use tools designed for blogging when you can use tools designed for personal knowledge management and then get frustrated when they're bad at blogging?
+
+Notion makes publishing a pain unless you pay or use third-party workarounds. Obsidian's publishing is equally awkward. Both platforms excel at what they're designed for, which isn't public blogging.
+
+But I tried them anyway, wasted time configuring plugins and syncing setups, and then abandoned both. At this point, I stopped blogging entirely. Peak efficiency.
+
+## 2024-2025:
+
+Then I started job-hunting and realized I had no portfolio. Six years of learning, building things, and solving problems, but zero organized evidence of any of it. Turns out "Yeah, trust me; I know stuff" doesn't work in interviews.
+
+So here I am again, shopping for blog platforms. Except this time I actually wrote down requirements:
+
+**Must have:**
+- Fast builds
+- Good syntax highlighting (code-block)
+- Math support
+- Minimal design
+- Easy deployment
+- Markdown workflow
+
+**Don't care about:**
+- Animations (performance issue maker)
+- Comments (everyone has zero, right?)
+- Analytics (my traffic is a rounding error)
+
+**Deal breakers:**
+- Heavy dependencies
+- Opinionated tooling that gets in my way
+- Constant maintenance (I want to write, not babysit a platform)
+
+Enter **Astro**.
+
+## Why Astro and astro-erudite
+
+Astro checks the boxes. Fast builds, minimal ~~JavaScript~~TypeScript, actually designed for content sites instead of pretending blogs are web applications. After years of frameworks trying to convince me I need client-side routing for static text, this is refreshing.
+
+Deployment to **Vercel** is trivial. Push to GitHub, done. No surprise bills, no complex CI/CD, no reason to panic-delete my account.
+
+But the real reason I'm here is [astro-erudite](https://github.com/jktrn/astro-erudite) and enscribe's post "[The State of Static Blogs in 2024](https://astro-erudite.vercel.app/blog/the-state-of-static-blogs)." Reading it felt like finding someone actually knows what they're talking about.
+
+The philosophy is simple:
+
+> "Aesthetically, it is also designed to be as boring as possible while still maintaining maximum functionality, as to allow for the freedom of the developer (or the designer they hire) to make their blog uniquely their own."
+
+No analytics for my three monthly visitors. No comment section for the spam bots. No ESLint pre-commit hooks enforcing someone else's style guide on my personal blog. No `.env` files because it's *a static site*.
+
+This theme understands that for personal blogs, every feature you don't include is one less thing that can break, one less configuration to maintain, one less reason to abandon the platform in six months.
+
+Seems fair.
+
+## Lessons from Six Years of Poor Decisions
+
+Here's what I've learned, for whatever that's worth:
+
+**1. You need less than you think**
+
+Every feature sounds essential until you realize you've spent more time configuring it than using it. Most features are solutions desperately searching for problems that don't exist.
+
+**2. Friction kills everything**
+
+The best platform is the one where you can go from idea to published post with minimal friction. Every extra step—every build error, every dependency conflict, every configuration file—is another chance to say "screw this" and abandon the post.
+
+**3. Boring is sustainable**
+
+Flashy features are exciting for exactly one week. Simple, boring tools are exciting for years. The cutting-edge tech stack that makes for great Twitter content makes for a terrible foundation when you just want to write consistently.
+
+**4. Language familiarity matters**
+
+Jekyll's Ruby felt like a foreign language in 2019. Now I like Ruby. But that initial barrier was enough to make me quit. The best tool isn't the most powerful one—it's the one you can actually use without wanting to throw your laptop.
+
+**5. Ownership reduces anxiety**
+
+Markdown files in a Git repo means I actually own my content. No platform lock-in, no surprise ToS changes, no company going bankrupt and taking my blog with it. Revolutionary concept, really.
+
+**6. Your needs evolve (or you finally understand them)**
+
+What I thought I needed in 2019 was wrong. What I think I need now is probably also wrong. But at least now I know the difference between "this would be cool to have" and "this is actually necessary."
+
+**7. Sometimes the problem is you**
+
+Maybe half my platform-hopping was legitimate. The other half? I was overthinking, over-optimizing, over-engineering. Sometimes you need to pick something reasonable and just start writing.
+
+Which leads to the most important lesson:
+
+**8. KISS and YAGNI aren't just acronyms**
+
+I've started dozens of side projects over the years. Most are dead. The pattern is always the same: start simple, add features "for later," implement abstractions "for flexibility," build systems "for scale." Before I know it, the simple idea is buried under complexity I never needed.
+
+Every failed project was a violation of KISS (Keep It Simple, Stupid) and YAGNI (You Aren't Gonna Need It). I kept building for imaginary future requirements instead of solving actual present problems.
+
+My blog platform search was the same. I wanted every feature "just in case." Comments? Maybe someday. Analytics? Probably useful. Custom taxonomies? Why not. Each "just in case" feature added friction, and friction leads to abandonment.
+
+I still catch myself doing this. Overengineering is apparently genetic. But I've found ways to fight it: document *why* I'm adding complexity (forces me to articulate justification), and use AI as a sanity check. When I explain "what if I add this feature" to an AI, I often realize mid-sentence that I'm solving imaginary problems.
+
+It's pathetic that I need AI to tell me to stop overthinking, but here we are.
+
+## End of Nomadic Life?
+
+So here I am, on attempt number seven or eight (I've lost count). Am I declaring "this is definitely my last platform ever"? No. I've said that before, and I was wrong every time.
+
+But I've finally internalized something important: **the platform was never the problem. I am.**
+
+My tendency to overthink, over-optimize, and overcomplicate everything is the real bottleneck. Not the tech stack, not the features, not the ecosystem.
+
+Astro and astro-erudite work for me *because* they're opinionated about simplicity. The theme explicitly removes features most blogs don't need. It's "boring" by design. This external constraint helps counter my internal tendency to add "just one more thing."
+
+The goal is simple: write about what I learn, document solutions to problems, build a portfolio. No fancy features, no complex setup. Just content. The focused simplicity I should have pursued from the start but was too stupid to recognize.
+
+If you've been on a similar journey—jumping platforms, killing side projects through feature creep, searching for the "perfect" setup—maybe this resonates. Maybe you'll learn from my mistakes faster than I did.
+
+Or maybe you'll repeat them all anyway. That seems to be how this works.
+
+The platform search is over. The side project graveyard is closed. Now comes the hard part: actually writing consistently instead of endlessly optimizing the writing environment.
+
+We'll see how long this lasts. I'm not optimistic, but I'm here anyway.
+
+---
+
+*Welcome to the blog. Let's see if I actually use it this time.*
