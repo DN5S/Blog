@@ -1,0 +1,322 @@
+---
+title: "Counterintuitive Google Fonts"
+description: "How requesting more font weights made my site faster, and why I wasted hours optimizing something that was already broken"
+date: 2025-10-02
+authors: ['dn5s']
+tags: ["blogging","developer-experience", "performance", "web-fonts", "google-fonts", "optimization"]
+image: './banner.webp'
+draft: false
+---
+
+import Callout from '@/components/Callout.astro'
+
+## Introduction
+
+I like Lighthouse scores for the same reason I like 3DMark scores: watching numbers go up is intrinsically satisfying, even when it doesn't matter. There's something deeply appealing about turning the web performance equivalent of a synthetic benchmark into a personal challenge.
+
+Is a 100 Lighthouse score meaningful? Not really. Does a high score guarantee a good user experience? Absolutely not. Will I spend hours chasing those last few points anyway? You already know the answer.
+
+This is a story about one of those optimization rabbit holes. Except this time, the solution turned out to be the exact opposite of what I expected.
+
+## The Problem
+
+I added CJK (Chinese, Japanese, Korean) font support—specifically `Noto Sans KR` and `Noto Sans JP`—and watched the score drop to 90. (So, it is actually JK.)
+
+The page was still fast. First Contentful Paint was around `1000ms`, which is perfectly reasonable. But that's not the point. The point is that the number went *down*, and numbers going down is unacceptable when you're treating web performance like a Steam game.
+
+So I did what any reasonable person would do: I spent several hours investigating.
+
+## The Investigation
+
+Here's what I was using:
+
+```html title="Original font loading"
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link
+  href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500&family=Noto+Sans+KR:wght@400;500&display=swap"
+  rel="stylesheet"
+>
+```
+
+The setup looked correct. I had `preconnect` to minimize DNS lookup time. I was using `<link>` instead of `@import` (which would be render-blocking). I was only requesting two weights: 400 and 500.
+
+Everything about this seemed optimal. Two fonts, two weights each, minimal overhead. What could possibly be wrong?
+
+First, I checked the actual performance metrics using browser DevTools:
+
+```js title="Console: Check font performance" showLineNumbers
+// Run this in your browser console to measure font loading
+const nav = performance.getEntriesByType('navigation')[0];
+const paint = performance.getEntriesByType('paint');
+const fontResources = performance.getEntriesByType('resource')
+  .filter(r => r.name.includes('fonts.googleapis') || r.name.includes('fonts.gstatic'));
+
+console.log('Navigation Timing:', {
+  domContentLoaded: nav.domContentLoadedEventEnd,
+  loadComplete: nav.loadEventEnd,
+});
+
+console.log('Paint Timing:', paint.map(p => ({
+  name: p.name,
+  startTime: p.startTime
+})));
+
+console.log('Font Resources:', fontResources.map(f => ({
+  url: f.name,
+  duration: f.duration,
+  transferSize: f.transferSize,
+  renderBlocking: f.renderBlockingStatus
+})));
+```
+
+The results were telling:
+
+```json title="Performance metrics (wght@400;500)"
+{
+  "googleFontsCSS": {
+    "duration": 451.5,
+    "transferSize": 107252,
+    "renderBlocking": "blocking"
+  },
+  "firstPaint": 716,
+  "domContentLoaded": 838
+}
+```
+
+Over `100KB` for a CSS file just declaring fonts? That seemed excessive.
+
+<Callout variant="tip" title="Test your own site">
+  You can run the same performance check on your site right now. Open DevTools console and paste the JavaScript code above. If your Google Fonts CSS is over 50KB for just a couple of fonts, you might benefit from the optimization in this article.
+</Callout>
+
+## The Counterintuitive Solution
+
+After diving into network requests and performance metrics, I noticed something strange about the Google Fonts CSS file:
+
+- **Individual weights** (`wght@400;500`): 107KB CSS
+- **First Paint**: 716ms
+
+Then I tried something that felt completely backwards. Instead of requesting *fewer* weights, I requested *more*:
+
+```html {4} title="Using weight range syntax"
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link
+  href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@100..900&family=Noto+Sans+KR:wght@100..900&display=swap"
+  rel="stylesheet"
+>
+```
+
+The result?
+
+- **Weight range** (`wght@100..900`): 53KB CSS (-50%)
+- **First Paint**: 436ms (-39%)
+
+Wait, what?
+
+I increased the weight range from 2 specific values to the full 100-900 spectrum. CSS file size dropped by half. First Paint improved by 39%. The Lighthouse score went back to 100.
+
+This made no sense. More weights should mean more data, right? *Right?*
+
+## What's Actually Happening
+
+Turns out, Google Fonts treats these two request styles very differently, and it has to do with how the API optimizes font delivery based on the syntax you use.
+
+### Understanding unicode-range Subsetting
+
+CJK fonts are massive. According to [web.dev's font optimization guide](https://web.dev/articles/api-for-fast-beautiful-web-fonts), CJK fonts cover 15-20 times more characters than Latin fonts—often over 10,000 glyphs compared to a few hundred.
+
+To make these fonts usable on the web, Google Fonts uses the [`unicode-range`](https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/unicode-range) CSS descriptor to split fonts into smaller chunks. Each chunk covers a specific range of Unicode code points, and **browsers only download the chunks containing characters actually used on the page**.
+
+For example, a typical CJK font might be split into ~100-120 different unicode-range segments like:
+
+```css
+/* Hiragana */
+@font-face {
+  unicode-range: U+3040-309F;
+  src: url(...);
+}
+
+/* Katakana */
+@font-face {
+  unicode-range: U+30A0-30FF;
+  src: url(...);
+}
+
+/* CJK Unified Ideographs - Subset 1 */
+@font-face {
+  unicode-range: U+4E00-4EFF;
+  src: url(...);
+}
+```
+
+According to [Google's documentation](https://web.dev/articles/api-for-fast-beautiful-web-fonts), this unicode-range subsetting can reduce file transfers by approximately 90% for CJK fonts.
+
+### Method 1: Individual Weights (`wght@400;500`)
+
+When you request specific individual weights using the semicolon syntax, the [Google Fonts CSS API](https://developers.google.com/fonts/docs/css2) generates separate `@font-face` declarations for each weight:
+
+**What the API generates:**
+- ~120 `@font-face` rules for weight 400 (each with different unicode-range)
+- ~120 `@font-face` rules for weight 500 (each with different unicode-range)
+- Total: ~240 `@font-face` declarations
+
+**For Noto Sans KR + JP with weights 400;500:**
+- CSS file size: 107KB
+- Total `@font-face` rules: ~480 (240 per font family)
+
+The API treats each weight as a completely separate static font file that needs its own full set of unicode-range declarations.
+
+### Method 2: Weight Range (`wght@100..900`)
+
+When you request a weight range using the `..` range syntax, the API switches to a more efficient strategy. According to [Google's CSS API documentation](https://developers.google.com/fonts/docs/css2):
+
+> "To request a range of a variable font axis, join the 2 values with .."
+
+**What the API generates:**
+- ~120 `@font-face` rules covering the full weight range
+- Each rule uses [`font-weight: 100 900`](https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face) descriptor to indicate the supported range
+- Potentially leverages variable font technology internally
+
+**For Noto Sans KR + JP with weight range 100..900:**
+- CSS file size: 53KB (-50%)
+- Total `@font-face` rules: ~240 (120 per font family)
+
+The range syntax tells the API: "I need flexible access to this weight spectrum." This allows the API to optimize by:
+1. Generating fewer font-face declarations
+2. Using [variable font](https://web.dev/articles/variable-fonts/) features where possible
+3. More efficient unicode-range organization
+
+### The Technical Difference
+
+The key difference is in how the `font-weight` descriptor is declared in each `@font-face` rule:
+
+```css title="Individual weights syntax generates"
+/* Weight 400 - one of ~120 blocks */
+@font-face {
+  font-family: 'Noto Sans KR';
+  font-weight: 400;
+  unicode-range: U+4E00-4EFF;
+  src: url(...);
+}
+
+/* Weight 500 - another ~120 blocks */
+@font-face {
+  font-family: 'Noto Sans KR';
+  font-weight: 500;
+  unicode-range: U+4E00-4EFF;
+  src: url(...);
+}
+```
+
+```css title="Range syntax generates"
+/* Single block covering full weight range */
+@font-face {
+  font-family: 'Noto Sans KR';
+  font-weight: 100 900; /* Range descriptor */
+  unicode-range: U+4E00-4EFF;
+  src: url(...);
+}
+```
+
+According to the [CSS Fonts Module Level 4 spec](https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face), the two-value `font-weight` syntax indicates a continuous range, allowing browsers to interpolate any weight value between the endpoints.
+
+## The Performance Impact
+
+| Metric | Individual (400;500) | Range (100..900) | Improvement |
+|--------|---------------------|------------------|-------------|
+| CSS Size | 107KB | 53KB | **-50%** |
+| @font-face rules | ~480 | ~240 | **-50%** |
+| CSS Parse Time | 451ms | 390ms | -14% |
+| First Paint | 716ms | 436ms | **-39%** |
+| Lighthouse Score | 90 | 100 | **+10** |
+
+The performance improvement comes from:
+1. **Smaller CSS payload**: Fewer bytes to download and parse
+2. **Fewer style recalculations**: Browser has less CSS rules to process
+3. **Better browser optimization**: Range syntax enables internal optimizations
+
+## Why This Happens
+
+The Google Fonts API makes different assumptions based on your request syntax:
+
+**Individual weights syntax (`wght@400;500`) signals:**
+- You need specific, discrete font weights
+- You're optimizing for precise control
+- Each weight should be independently cacheable
+- Static font files are preferred
+
+**Range syntax (`wght@100..900`) signals:**
+- You want flexible access to the weight spectrum
+- You're comfortable with variable font features
+- Modern browser optimization is acceptable
+- File size and performance matter more than fine-grained control
+
+According to [CSS-Tricks' guide on variable fonts](https://css-tricks.com/getting-the-most-out-of-variable-fonts-on-google-fonts/):
+
+> "The Google Fonts API seeks to make fonts smaller by having users opt into only the styles and axes they want. But, to get the full benefits of variable fonts (more design flexibility in fewer files), you should use one or more axes."
+
+The range syntax isn't just about requesting more weights—it's a signal to the API that you want the most efficient delivery mechanism, even if you only end up using 2-3 actual weight values in your CSS.
+
+<Callout variant="warning" title="Browser compatibility note">
+  The range syntax optimization works best in modern browsers that support variable fonts (Chrome 88+, Firefox 89+, Safari 14.1+). For older browsers, the [Google Fonts API automatically serves static font fallbacks](https://developers.google.com/fonts/docs/css2) at standard weight positions (100, 200, 300, etc.). Your fonts will work everywhere, but the optimization benefits are most significant on modern browsers.
+</Callout>
+
+## Lessons Learned
+
+**1. API syntax is semantic, not just syntactic**
+
+The difference between `wght@400;500` and `wght@100..900` isn't just about which weights you get—it fundamentally changes how the API optimizes font delivery. The syntax communicates your intent to the API, which then makes different optimization decisions.
+
+**2. More isn't always more (for CJK fonts)**
+
+For CJK fonts with extensive unicode-range subsetting, requesting a weight range actually produces *less* CSS than requesting individual weights. This is counterintuitive but makes sense when you understand the `@font-face` multiplication happening under the hood.
+
+**3. Trust the platform, but verify**
+
+Google's documentation mentions using range syntax for variable fonts, but doesn't clearly explain that the range syntax itself is more efficient for heavily-subsetted fonts like CJK families. Sometimes the best optimizations are hidden in implementation details.
+
+**4. Measure everything**
+
+Without actually measuring the CSS payload size and parsing time, I would never have discovered this. Performance intuition fails when APIs have optimization strategies that differ from your mental model.
+
+**5. Premature optimization is real**
+
+I optimized to `400;500` thinking I was being clever: "Fewer weights = smaller payload." Wrong. I optimized myself into a corner before understanding how the system actually worked. Sometimes requesting more gives you less.
+
+## Practical Recommendations
+
+If you're using Google Fonts with CJK languages:
+
+1. **Use range syntax**: `wght@100..900` instead of `wght@400;500`
+2. **Preconnect**: Always include `preconnect` hints for both googleapis.com and gstatic.com
+3. **Use font-display**: Add `&display=swap` to prevent FOIT (Flash of Invisible Text)
+4. **Measure first**: Check your actual CSS payload before and after optimization
+
+For Latin fonts, the difference is less dramatic since they have fewer unicode-range subdivisions, but the range syntax can still be beneficial if you're using multiple weights.
+
+<Callout variant="tip" title="Range width doesn't matter">
+  Surprisingly, `wght@400..500` and `wght@100..900` produce **identical CSS file sizes** (~53KB). The optimization comes from using the range syntax (`..`), not from limiting the range. So you might as well use the full `100..900` range for maximum flexibility—it costs nothing extra!
+</Callout>
+
+## Conclusion
+
+So there you have it. The way to make Google Fonts faster is to ask for *more* font weights, not fewer. Your instincts are wrong. Your optimization intuitions are wrong. Everything you know is wrong.
+
+Or more accurately: everything you know is *context-dependent*, and Google Fonts' API has different rules than you expect. The `@font-face` multiplication factor for unicode-range subsetting means that sometimes, more really is less.
+
+I'm back to my perfect 100 Lighthouse score. The number went up. Dopamine achieved. Was this worth several hours of investigation? Probably not. Will I do it again? Absolutely.
+
+Because watching numbers go up is fun, and that's reason enough.
+
+---
+
+## References
+
+- [Google Fonts CSS API Documentation](https://developers.google.com/fonts/docs/css2)
+- [MDN: unicode-range](https://developer.mozilla.org/en-US/docs/Web/CSS/@font-face/unicode-range)
+- [web.dev: API for fast, beautiful web fonts](https://web.dev/articles/api-for-fast-beautiful-web-fonts)
+- [web.dev: Best practices for fonts](https://web.dev/articles/font-best-practices)
+- [CSS-Tricks: Getting the Most Out of Variable Fonts on Google Fonts](https://css-tricks.com/getting-the-most-out-of-variable-fonts-on-google-fonts/)
+- [Variable Fonts: Implementing Variable Fonts](https://variablefonts.io/implementing-variable-fonts/)
