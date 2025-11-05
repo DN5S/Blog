@@ -1,0 +1,379 @@
+---
+title: "Debugging Redis AsyncIO AttributeError in Docker"
+description: "How platform-specific socket constants broke my Redis connection, and why minimal reproduction tests are debugging gold"
+date: 2025-11-05
+authors: ['dn5s']
+tags: ["redis", "docker", "debugging", "fastapi", "python", "asyncio", "platform-compatibility"]
+draft: false
+---
+
+import Callout from '@/components/Callout.astro'
+
+## Introduction
+
+I was containerizing a FastAPI backend with Docker Compose when I decided to waste my entire morning with this error:
+
+```
+AttributeError: '_AsyncHiredisParser' object has no attribute '_connected'
+```
+
+The application worked perfectly on my Windows development machine. Every test passed. Redis was fast. OAuth flow was smooth. Then I put it in a Docker container and watched it explode.
+
+After an hour or two of debugging GitHub issues and suspecting library bugs, the real culprit turned out to be three innocent-looking numbers in my configuration: `{1: 60, 2: 10, 3: 6}`. Platform-specific TCP socket constants that mean different things on Windows and Linux. Who knew? (Everyone. Everyone knew. I just forgot.)
+
+This is the story of how minimal reproduction tests saved an hour of my life, and how I should have been working on the frontend instead.
+
+## TL;DR
+
+While containerizing a FastAPI backend, I encountered `AttributeError: '_AsyncHiredisParser' object has no attribute '_connected'` when using Redis AsyncIO. The root cause: **hardcoded TCP keepalive socket option constants** that were valid on Windows but invalid in the Linux Docker container.
+
+**The Fix**: Remove platform-specific `socket_keepalive_options` and let Redis use system defaults.
+
+---
+
+## The Setup
+
+I had a FastAPI backend running on Windows, connecting to containerized infrastructure. The infrastructure (PostgreSQL, Redis, N8N) was already running in Docker Compose, but the FastAPI backend itself was still running locally with `uvicorn app.main:app` in my terminal.
+
+**The Architecture:**
+- **Windows local**: FastAPI backend (Python 3.12)
+- **Docker Compose**: PostgreSQL, Redis, N8N
+
+**Tech Stack:**
+- FastAPI (Python 3.12)
+- redis-py 7.0.1 with hiredis 3.3.0
+- Docker Compose with Podman
+- uv package manager
+
+This hybrid setup worked perfectly. The Windows-based FastAPI connected to the Docker-based Redis without issues. OAuth flow was smooth. Everything was fast.
+
+Then I decided to containerize the FastAPI backend too, to have everything in Docker Compose. Same code, same configuration, just running in a container instead of Windows.
+
+That's when Redis connections started failing. What could go wrong?
+
+---
+
+## Issue #1: Dockerfile Build Failure - Missing README.md
+
+**Error:**
+```
+OSError: Readme file does not exist: README.md
+```
+
+**Root Cause:** The project uses `hatchling` as the build backend, which requires `README.md` during dependency installation. Because apparently build tools need documentation to install code.
+
+**Initial Dockerfile:**
+```dockerfile
+COPY pyproject.toml uv.lock ./
+RUN uv sync --no-dev
+```
+
+**Fix:**
+```dockerfile
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --no-dev
+```
+
+✅ **Build passed.** Next problem.
+
+---
+
+## Issue #2: uvicorn Not Found in PATH
+
+**Error:**
+```
+crun: executable file 'uvicorn' not found in $PATH
+```
+
+**Root Cause:** `uv sync` creates a virtual environment (`.venv`), but the `CMD` tries to run `uvicorn` directly without activating the venv.
+
+**Attempted Solutions:**
+1. ❌ `UV_SYSTEM_PYTHON=1` with `uv sync` - Still created `.venv`
+2. ❌ `uv run uvicorn` - Required proper venv setup
+3. ✅ **System-wide installation with locked versions**
+
+**Final Solution:**
+```dockerfile title="The working approach"
+# Export locked dependencies to requirements.txt and install system-wide
+RUN uv export --frozen --no-dev --no-hashes -o requirements.txt && \
+    uv pip install --system --no-cache -r requirements.txt && \
+    rm requirements.txt
+
+# Direct uvicorn command (no uv run needed)
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+This approach:
+- Maintains exact lockfile versions (`--frozen`)
+- Installs system-wide without venv (`--system`)
+- Allows direct uvicorn execution
+
+✅ **Container started.** Logs looked good. Time to test the actual application.
+
+And that's when things got weird.
+
+---
+
+## Issue #3: The Mystery - Redis AttributeError
+
+I tried logging in via Google OAuth. The backend should have:
+1. Generated a CSRF state token
+2. Stored it in Redis with expiration
+3. Redirected to Google's OAuth page
+
+Instead, I got this:
+
+```json title="The error that started it all"
+{
+  "error": {
+    "code": "INTERNAL_ERROR",
+    "message": "Error: '_AsyncHiredisParser' object has no attribute '_connected'",
+    "details": {
+      "traceback": "...await redis.setex(state_key, settings.oauth_state_expiry, json.dumps(state_data))..."
+    }
+  }
+}
+```
+
+The error was happening during `redis.setex()` - a basic Redis operation that should just work. And it *did* work on my Windows machine. But inside the Docker container? Complete failure.
+
+### Going Down the Rabbit Hole
+
+When you see an error message like `'_AsyncHiredisParser' object has no attribute '_connected'`, your brain immediately goes to library bugs. I spent way too long investigating:
+
+- ❌ **GitHub Issue #3745**: There was a known bug with `health_check_interval` in redis-py. Added health check. Didn't help.
+- ❌ **Version mismatch**: Maybe Docker had different package versions? Nope, checked with `pip list`, everything matched.
+- ❌ **Network configuration**: Maybe it's a Docker network issue? But PostgreSQL worked fine, so probably not.
+
+The error traceback pointed to deep inside redis-py's hiredis parser:
+
+```python
+File "/usr/local/lib/python3.12/site-packages/redis/_parsers/hiredis.py", line 240
+    if not self._connected:
+           ^^^^^^^^^^^^^^^
+AttributeError: '_AsyncHiredisParser' object has no attribute '_connected'
+```
+
+This looked like `_connected` wasn't being initialized. But why would that only happen in Docker?
+
+I opened the [redis-py source code](https://github.com/redis/redis-py/blob/master/redis/_parsers/hiredis.py) to understand what was happening. The [`_AsyncHiredisParser`](https://github.com/redis/redis-py/blob/master/redis/_parsers/hiredis.py#L230-L250) class should initialize `_connected` in its `on_connect()` callback. If that attribute didn't exist, it meant `on_connect()` never ran—which meant the connection never succeeded in the first place.
+
+<Callout variant="warning" title="When error messages mislead you">
+  The prominent error message isn't always the root cause. In this case, the `AttributeError` was actually a **secondary symptom** of an earlier failure. The real error was buried earlier in the connection setup process.
+</Callout>
+
+### The Turning Point: Minimal Reproduction
+
+After too much time reading GitHub issues and redis-py internals, I decided to take a step back. When debugging gets this confusing, there's one strategy that never fails: **isolate the problem**.
+
+I wrote the simplest possible Redis test:
+
+```python title="test_redis_minimal.py"
+import asyncio
+from redis.asyncio import from_url
+
+async def test_basic_connection():
+    redis = from_url(
+        "redis://redis:6379/0",
+        encoding="utf-8",
+        decode_responses=True,
+        max_connections=10,
+        socket_timeout=5,
+    )
+    
+    await redis.setex("test_key", 10, "test_value")
+    value = await redis.get("test_key")
+    print(f"✓ GET successful: {value}")
+    
+    await redis.delete("test_key")
+    await redis.close()
+
+asyncio.run(test_basic_connection())
+```
+
+I ran this inside the Docker container, fully expecting it to fail with the same `AttributeError`.
+
+**It worked perfectly.** ✅
+
+This was the breakthrough. redis-py itself was fine. The problem wasn't the library, the network, or the Docker environment. The problem was **my configuration**.
+
+### Finding the Real Culprit
+
+If the minimal test passed but my application failed, the issue must be in how I was configuring Redis. I created another test, this time using my actual `RedisClient` class:
+
+```python title="test_redis_client.py - Using application config"
+from app.redis_client import RedisClient
+
+async def test_redis_client_class():
+    client = RedisClient()
+    await client.connect()
+    await client.setex("test_key", 10, "test_value")
+    # ...
+```
+
+**This failed.** ❌
+
+But with a different error message that I'd been missing in the logs:
+
+```
+OSError: [Errno 22] Invalid argument
+  at sock.setsockopt(socket.SOL_TCP, k, v)
+```
+
+There it was. The real error. `setsockopt()` was failing with "Invalid argument" during socket setup. And *then* the connection attempt would fail, leading to the `AttributeError` when trying to access `_connected` before it was initialized.
+
+### The Problematic Configuration
+
+I looked at my Redis configuration:
+
+```python title="The problematic config"
+redis_socket_keepalive_options: dict[int, int] = {
+    1: 60,  # TCP_KEEPIDLE
+    2: 10,  # TCP_KEEPINTVL
+    3: 6,   # TCP_KEEPCNT
+}
+```
+
+And suddenly it all made sense.
+
+## Understanding the Root Cause
+
+Those numbers—`1`, `2`, `3`—aren't universal constants. They're **platform-specific socket option constants** that map to TCP keepalive parameters.
+
+On Windows (where I developed), those values happen to correspond to:
+- `1` = Some keepalive setting
+- `2` = Another keepalive setting  
+- `3` = Yet another keepalive setting
+
+On Linux (inside the Docker container), those same numbers mean **completely different things**, or worse, **nothing at all**. When Redis tried to call:
+
+```python
+sock.setsockopt(socket.SOL_TCP, 1, 60)  # Invalid on Linux!
+```
+
+The Linux kernel responded with "Invalid argument" because `1` isn't a valid TCP socket option constant on that platform.
+
+The proper way to do this would be using the symbolic constants:
+
+```python
+import socket
+
+socket_keepalive_options = {
+    socket.TCP_KEEPIDLE: 60,   # Symbolic constant, platform-aware
+    socket.TCP_KEEPINTVL: 10,
+    socket.TCP_KEEPCNT: 6,
+}
+```
+
+These symbolic constants get translated to the correct numeric values for each platform at runtime.
+
+But here's the thing: **I didn't need these custom keepalive options at all.** Redis already has sensible defaults, and the OS handles TCP keepalive just fine without me trying to be clever.
+
+<Callout variant="tip" title="When in doubt, use defaults">
+  Library authors spend a lot of time tuning default values. Unless you have specific requirements backed by measurements, hardcoded low-level configuration is usually premature optimization—and in this case, it was actively harmful.
+</Callout>
+
+## The Error Chain Explained
+
+Now the full error sequence made sense:
+
+1. Redis tries to establish connection with my custom `socket_keepalive_options`
+2. `setsockopt()` fails with `OSError: Invalid argument` because the constants are platform-specific
+3. Connection fails and enters retry logic
+4. During retry, redis-py calls `can_read_destructive()` to check connection state
+5. This tries to access `self._connected` attribute
+6. But `_connected` is only initialized in the `on_connect()` callback
+7. Since connection never succeeded, `on_connect()` never ran
+8. `AttributeError: '_AsyncHiredisParser' object has no attribute '_connected'`
+
+The `AttributeError` wasn't the bug—it was a **symptom** of the earlier socket configuration failure.
+
+## The Fix
+
+The solution was simple: remove the problematic configuration.
+
+```python title="app/config.py - After"
+redis_socket_keepalive: bool = True
+# Let Redis use system defaults for TCP keepalive
+# Platform-specific constants cause "Invalid argument" errors in Docker
+redis_socket_keepalive_options: dict[int, int] | None = None
+```
+
+```python title="app/redis_client.py - After"
+async def connect(self) -> None:
+    """Establish Redis connection."""
+    if self._redis is None:
+        conn_params = {
+            "encoding": "utf-8",
+            "decode_responses": True,
+            "max_connections": settings.redis_max_connections,
+            "socket_timeout": settings.redis_socket_timeout,
+            "socket_connect_timeout": settings.redis_socket_connect_timeout,
+            "socket_keepalive": settings.redis_socket_keepalive,
+        }
+        
+        # Only add socket_keepalive_options if configured
+        if settings.redis_socket_keepalive_options:
+            conn_params["socket_keepalive_options"] = settings.redis_socket_keepalive_options
+        
+        self._redis = from_url(str(settings.redis_url), **conn_params)
+```
+
+Rebuilt the Docker image, restarted the containers, tested OAuth login.
+
+**It worked.** ✅
+
+## Lessons Learned
+
+**1. Minimal reproduction tests are your best friend**
+
+When debugging complex issues, the first instinct is to dig deeper into the complex system. Sometimes the better approach is to step back and create the *simplest possible test case*. This immediately told me: "redis-py works fine, your config doesn't."
+
+**2. Error messages lie (or at least, they mislead)**
+
+The `AttributeError` looked like a redis-py bug. It even had a GitHub issue that seemed related. But the real error—`OSError: Invalid argument`—was hiding earlier in the logs, overshadowed by the more dramatic exception.
+
+**3. Platform-specific constants are dangerous**
+
+Hardcoded numeric values like `{1: 60, 2: 10, 3: 6}` might work on your development machine, but they're time bombs waiting to explode in production. If you must use low-level socket options:
+- Use symbolic constants (`socket.TCP_KEEPIDLE`, not `1`)
+- Or better yet, let the library use platform-appropriate defaults
+
+**4. Code that works locally can fail in production for subtle reasons**
+
+Windows and Linux aren't just different operating systems—they have different kernels, different system libraries, and different constant mappings. "Works on my machine" is a meme for a reason.
+
+**5. Premature optimization is real**
+
+I added those socket keepalive options thinking I was optimizing Redis performance. I had no measurements. I had no specific problem I was solving. I was just cargo-culting configuration I'd seen somewhere else. And it broke my application in production.
+
+<Callout variant="tip" title="The debugging methodology that saved me">
+  1. Reproduce the error consistently
+  2. Create a minimal test case
+  3. Remove variables one by one
+  4. Compare working vs. broken configs
+  5. Read the *first* error, not the loudest one
+  
+  This systematic approach beats random googling every time.
+</Callout>
+
+## Conclusion
+
+What started as a mysterious `AttributeError` in Redis AsyncIO turned out to be a lesson in platform compatibility and the dangers of premature optimization. The fix was removing code, not adding it.
+
+Now my FastAPI backend runs happily in Docker, OAuth works perfectly, and Redis does its job without me trying to micromanage its TCP socket behavior. The way it should be.
+
+🐛🐛🐛🐛🐛🐛🐛🐛🐛🐛
+
+---
+
+## References
+
+- [redis-py GitHub repository](https://github.com/redis/redis-py) - Official redis-py source code
+- [redis-py hiredis parser source](https://github.com/redis/redis-py/blob/master/redis/_parsers/hiredis.py) - The file where the error occurred
+- [redis-py GitHub Issue #3745](https://github.com/redis/redis-py/issues/3745) - Related async connection bug
+- [Python socket module documentation](https://docs.python.org/3/library/socket.html) - TCP socket options
+- [TCP Keepalive HOWTO](https://tldp.org/HOWTO/TCP-Keepalive-HOWTO/overview.html) - Understanding TCP keepalive
+- [Docker and platform-specific issues](https://docs.docker.com/build/building/multi-platform/) - Cross-platform Docker builds
+
+---
